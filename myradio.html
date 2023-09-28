@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M3U Playlist Viewer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    #inputContainer {
+      margin-bottom: 20px;
+    }
+
+    #playlistContainer {
+      max-width: 600px;
+    }
+
+    .groupButton {
+      display: block;
+      margin: 5px 0;
+      padding: 8px;
+      background-color: #3498db;
+      color: #fff;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .imgContainer {
+      margin-bottom: 10px;
+      cursor: pointer;
+    }
+
+    .logoImage {
+      max-width: 50px;
+      max-height: 50px;
+      margin-right: 10px;
+    }
+
+    #clearIndexedDBBtn {
+      display: block;
+      margin-top: 20px;
+      padding: 8px;
+      background-color: #e74c3c;
+      color: #fff;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div id="inputContainer">
+  <label for="m3uTextarea">Paste M3U Content:</label>
+  <textarea id="m3uTextarea" rows="10" placeholder="Paste M3U content here"></textarea>
+  <button onclick="parseM3UFromTextarea()">Parse M3U</button>
+</div>
+
+<div id="playlistContainer"></div>
+
+<button id="clearIndexedDBBtn" onclick="clearIndexedDB()">Clear IndexedDB</button>
+
+<script>
+  // Open or create the IndexedDB database
+  const dbName = 'M3UDB';
+  const dbVersion = 1;
+
+  const request = indexedDB.open(dbName, dbVersion);
+
+  request.onerror = function (event) {
+    console.error('IndexedDB error:', event.target.errorCode);
+  };
+
+  request.onupgradeneeded = function (event) {
+    const db = event.target.result;
+    db.createObjectStore('m3uContent', { keyPath: 'id' });
+  };
+
+  request.onsuccess = function (event) {
+    db = event.target.result;
+    console.log('IndexedDB opened successfully');
+    
+    // Load from IndexedDB on page load
+    loadFromIndexedDB();
+  };
+
+  let db;
+
+  function parseM3UFromTextarea() {
+    const m3uContent = document.getElementById('m3uTextarea').value;
+    parseM3U(m3uContent);
+  }
+
+  function parseM3U(m3uData) {
+    const playlistContainer = document.getElementById('playlistContainer');
+    playlistContainer.innerHTML = ''; // Clear previous content
+
+    const lines = m3uData.split('#EXTINF');
+
+    let groups = {};
+
+    let currentGroup = '';
+
+    lines.forEach(line => {
+      if (line.trim() !== '') {
+        const groupNameMatch = /group-title="([^"]+)"/.exec(line);
+        const groupName = groupNameMatch ? groupNameMatch[1] : 'Other';
+
+        if (!groups[groupName]) {
+          groups[groupName] = [];
+          if (groupName !== currentGroup) {
+            // Create a button for each group
+            const groupButton = document.createElement('a');
+            groupButton.href = '#';
+            groupButton.className = 'groupButton';
+            groupButton.textContent = groupName;
+            groupButton.onclick = () => showGroupContent(groupName, groups[groupName]);
+            playlistContainer.appendChild(groupButton);
+          }
+        }
+
+        const tvgLogoMatch = /tvg-logo="([^"]+)"/.exec(line);
+        const tvgLogo = tvgLogoMatch ? tvgLogoMatch[1] : '';
+
+        const commaIndex = line.indexOf(',');
+        const mediaContentAndLink = line.substring(commaIndex + 1).trim();
+        const [mediaContent, link] = mediaContentAndLink.split(' ');
+
+        groups[groupName].push({ tvgLogo, mediaContent, link });
+        currentGroup = groupName;
+      }
+    });
+
+    // Create containers for each group
+    Object.keys(groups).forEach(groupName => {
+      const groupContainer = document.createElement('div');
+      groupContainer.className = 'groupContainer';
+
+      groups[groupName].forEach(({ tvgLogo, mediaContent, link }) => {
+        const imgContainer = document.createElement('div');
+        imgContainer.className = 'imgContainer';
+
+        const logoImage = document.createElement('img');
+        logoImage.className = 'logoImage';
+        logoImage.src = tvgLogo;
+        logoImage.alt = 'Logo';
+
+        const mediaContentElement = document.createElement('div');
+        mediaContentElement.textContent = mediaContent;
+
+        imgContainer.appendChild(logoImage);
+        imgContainer.appendChild(mediaContentElement);
+
+        imgContainer.onclick = () => showLinkContent(link);
+
+        groupContainer.appendChild(imgContainer);
+      });
+
+      playlistContainer.appendChild(groupContainer);
+    });
+
+    // Save to IndexedDB
+    saveToIndexedDB(m3uData);
+  }
+
+  function showGroupContent(groupName, mediaList) {
+    const groupContainers = document.querySelectorAll('.groupContainer');
+    groupContainers.forEach(container => {
+      container.style.display = container.textContent.includes(groupName) ? 'block' : 'none';
+    });
+  }
+
+  function showLinkContent(link) {
+    alert(link);
+  }
+
+  function clearIndexedDB() {
+    const transaction = db.transaction(['m3uContent'], 'readwrite');
+    const objectStore = transaction.objectStore('m3uContent');
+    const clearRequest = objectStore.clear();
+
+    clearRequest.onsuccess = function (event) {
+      console.log('IndexedDB cleared successfully.');
+    };
+
+    clearRequest.onerror = function (event) {
+      console.error('Error clearing IndexedDB:', event.target.errorCode);
+    };
+  }
+
+  function saveToIndexedDB(data) {
+    const transaction = db.transaction(['m3uContent'], 'readwrite');
+    const objectStore = transaction.objectStore('m3uContent');
+    const addRequest = objectStore.put({ id: 1, data });
+
+    addRequest.onsuccess = function (event) {
+      console.log('Data added to IndexedDB successfully.');
+    };
+
+    addRequest.onerror = function (event) {
+      console.error('Error adding data to IndexedDB:', event.target.errorCode);
+    };
+  }
+
+  function loadFromIndexedDB() {
+    const transaction = db.transaction(['m3uContent'], 'readonly');
+    const objectStore = transaction.objectStore('m3uContent');
+    const getRequest = objectStore.get(1);
+
+    getRequest.onsuccess = function (event) {
+      if (event.target.result) {
+        document.getElementById('m3uTextarea').value = event.target.result.data;
+        parseM3U(event.target.result.data);
+      }
+    };
+
+    getRequest.onerror = function (event) {
+      console.error('Error getting data from IndexedDB:', event.target.errorCode);
+    };
+  }
+</script>
+
+</body>
+</html>
